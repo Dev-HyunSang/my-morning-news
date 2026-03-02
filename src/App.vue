@@ -100,7 +100,7 @@ const extractImage = (item: Element): string | null => {
   // Try to extract from description HTML
   const description = item.querySelector('description')?.textContent || ''
   const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/)
-  if (imgMatch) {
+  if (imgMatch?.[1]) {
     return imgMatch[1]
   }
 
@@ -308,7 +308,7 @@ onMounted(() => {
 
             <div class="p-4">
               <h2 class="font-semibold text-gray-900 mb-2 hover:text-blue-600">
-                <span v-if="item.isBreaking" class="text-red-600 font-bold mr-1">[속보]</span>
+                <span v-if="item.isBreaking" class="text-red-600 font-bold mr-1">{{ activeTab === 'international' ? '[Breaking]' : '[속보]' }}</span>
                 {{ item.title }}
               </h2>
               <p class="text-sm text-gray-600 mb-2 line-clamp-2">
