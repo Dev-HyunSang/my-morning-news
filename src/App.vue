@@ -26,6 +26,7 @@ const loading = ref(true)
 const error = ref('')
 const selectedSources = ref<Set<string>>(new Set())
 const showBreakingOnly = ref(false)
+const showRecentOnly = ref(false)
 
 const rssSources: Record<TabType, RssSource[]> = {
   international: [
@@ -33,8 +34,11 @@ const rssSources: Record<TabType, RssSource[]> = {
     { url: '/api/rss/cnn', name: 'CNN' },
     { url: '/api/rss/cbc', name: 'CBC' },
     { url: '/api/rss/foxnews', name: 'Fox News' },
+    { url: '/api/rss/abc', name: 'ABC News' },
+    { url: '/api/rss/abc-us', name: 'ABC US' },
   ],
   domestic: [
+    { url: '/api/rss/yonhap', name: '연합뉴스' },
     { url: '/api/rss/chosun', name: '조선일보' },
     { url: '/api/rss/mk', name: '매일경제' },
     { url: '/api/rss/jtbc-flash', name: 'JTBC', isBreaking: true },
@@ -117,10 +121,22 @@ const decodeHtmlEntities = (text: string): string => {
 // Fetch single RSS feed
 const fetchSingleRSS = async (source: RssSource): Promise<FeedItem[]> => {
   const response = await fetch(source.url)
-  const text = await response.text()
+  if (!response.ok) {
+    console.warn(`Failed to fetch ${source.name}: ${response.status}`)
+    return []
+  }
 
+  const text = await response.text()
   const parser = new DOMParser()
   const xml = parser.parseFromString(text, 'text/xml')
+
+  // Check for XML parse error
+  const parseError = xml.querySelector('parsererror')
+  if (parseError) {
+    console.warn(`Failed to parse ${source.name}: Invalid XML`)
+    return []
+  }
+
   const items = xml.querySelectorAll('item')
 
   return Array.from(items).map((item, index) => ({
@@ -142,13 +158,20 @@ const fetchRSS = async () => {
     error.value = ''
 
     const sources = rssSources[activeTab.value]
-    const results = await Promise.all(sources.map(fetchSingleRSS))
+    const results = await Promise.allSettled(sources.map(fetchSingleRSS))
 
-    // Merge and sort by date
-    const allFeeds = results.flat()
+    // Filter successful results and merge
+    const allFeeds = results
+      .filter((r): r is PromiseFulfilledResult<FeedItem[]> => r.status === 'fulfilled')
+      .flatMap(r => r.value)
+
     allFeeds.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
 
     feeds.value = allFeeds
+
+    if (allFeeds.length === 0) {
+      error.value = 'Failed to load news'
+    }
   } catch (e) {
     error.value = 'Failed to load news'
     console.error(e)
@@ -162,7 +185,7 @@ const availableSources = computed(() => {
   return rssSources[activeTab.value].map(s => s.name)
 })
 
-// Filter feeds by selected sources and breaking news
+// Filter feeds by selected sources, breaking news, and recent
 const filteredFeeds = computed(() => {
   let result = feeds.value
 
@@ -172,6 +195,11 @@ const filteredFeeds = computed(() => {
 
   if (showBreakingOnly.value) {
     result = result.filter(item => item.isBreaking)
+  }
+
+  if (showRecentOnly.value) {
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000
+    result = result.filter(item => new Date(item.pubDate).getTime() > twoHoursAgo)
   }
 
   return result
@@ -192,11 +220,13 @@ const toggleSource = (source: string) => {
 const clearFilters = () => {
   selectedSources.value = new Set()
   showBreakingOnly.value = false
+  showRecentOnly.value = false
 }
 
 watch(activeTab, () => {
   selectedSources.value = new Set()
   showBreakingOnly.value = false
+  showRecentOnly.value = false
   fetchRSS()
 })
 
@@ -209,17 +239,17 @@ onMounted(() => {
   <div class="min-h-screen bg-gray-100">
     <!-- Header -->
     <header class="sticky top-0 z-10 bg-white border-b border-gray-200">
-      <div class="flex items-center justify-between px-4 py-3">
-        <h1 class="text-xl font-bold text-gray-900">HyunSang's Morning News</h1>
+      <div class="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
+        <h1 class="text-xl md:text-2xl font-bold text-gray-900">HyunSang's Morning News</h1>
         <button @click="fetchRSS" class="text-sm text-blue-600 hover:text-blue-800">Refresh</button>
       </div>
 
       <!-- Tabs -->
-      <div class="flex">
+      <div class="max-w-7xl mx-auto flex px-4">
         <button
           @click="activeTab = 'international'"
           :class="[
-            'flex-1 py-3 text-sm font-medium transition-colors',
+            'px-4 md:px-6 py-3 text-sm font-medium transition-colors',
             activeTab === 'international'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700',
@@ -230,7 +260,7 @@ onMounted(() => {
         <button
           @click="activeTab = 'domestic'"
           :class="[
-            'flex-1 py-3 text-sm font-medium transition-colors',
+            'px-4 md:px-6 py-3 text-sm font-medium transition-colors',
             activeTab === 'domestic'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700',
@@ -242,9 +272,9 @@ onMounted(() => {
 
       <!-- Source Filter -->
       <div class="px-4 py-2 bg-gray-50 border-t border-gray-100">
-        <div class="flex items-center gap-2 overflow-x-auto pb-1">
+        <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto pb-1">
           <button
-            v-if="selectedSources.size > 0 || showBreakingOnly"
+            v-if="selectedSources.size > 0 || showBreakingOnly || showRecentOnly"
             @click="clearFilters"
             class="flex-shrink-0 px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-300 rounded-full hover:bg-gray-100"
           >
@@ -260,6 +290,17 @@ onMounted(() => {
             ]"
           >
             {{ activeTab === 'international' ? 'Breaking' : '속보' }}
+          </button>
+          <button
+            @click="showRecentOnly = !showRecentOnly"
+            :class="[
+              'flex-shrink-0 px-3 py-1 text-xs font-medium rounded-full transition-colors',
+              showRecentOnly
+                ? 'bg-green-600 text-white'
+                : 'bg-white text-green-600 border border-green-300 hover:bg-green-50',
+            ]"
+          >
+            {{ activeTab === 'international' ? 'Recent 2h' : '최근 2시간' }}
           </button>
           <span class="text-gray-300">|</span>
           <button
@@ -280,7 +321,7 @@ onMounted(() => {
     </header>
 
     <!-- Feed Container -->
-    <main class="max-w-xl mx-auto py-4 px-4">
+    <main class="max-w-7xl mx-auto py-4 px-4">
       <!-- Loading -->
       <div v-if="loading" class="text-center py-8 text-gray-500">Loading...</div>
 
@@ -290,34 +331,34 @@ onMounted(() => {
       </div>
 
       <!-- Feed Items -->
-      <div v-else class="space-y-4">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <article
           v-for="item in filteredFeeds"
           :key="item.id"
-          class="bg-white rounded-lg shadow overflow-hidden"
+          class="bg-white rounded-lg shadow overflow-hidden flex flex-col"
         >
-          <a :href="item.link" target="_blank" rel="noopener" class="block">
+          <a :href="item.link" target="_blank" rel="noopener" class="block flex-1 flex flex-col">
             <!-- Image -->
             <img
               v-if="item.image"
               :src="item.image"
               :alt="item.title"
-              class="w-full h-48 object-cover"
+              class="w-full h-40 md:h-48 object-cover"
               loading="lazy"
             />
 
-            <div class="p-4">
-              <h2 class="font-semibold text-gray-900 mb-2 hover:text-blue-600">
+            <div class="p-4 flex-1 flex flex-col">
+              <h2 class="font-semibold text-gray-900 mb-2 hover:text-blue-600 line-clamp-2">
                 <span v-if="item.isBreaking" class="text-red-600 font-bold mr-1">{{ activeTab === 'international' ? '[Breaking]' : '[속보]' }}</span>
                 {{ item.title }}
               </h2>
-              <p class="text-sm text-gray-600 mb-2 line-clamp-2">
+              <p class="text-sm text-gray-600 mb-2 line-clamp-2 flex-1">
                 {{ item.description }}
               </p>
-              <div class="flex items-center gap-2 text-xs text-gray-400">
+              <div class="flex items-center gap-2 text-xs text-gray-400 mt-auto">
                 <span class="text-blue-600 font-medium">{{ item.source }}</span>
                 <span>·</span>
-                <span>{{ formatTime(item.pubDate) }}</span>
+                <span class="truncate">{{ formatTime(item.pubDate) }}</span>
               </div>
             </div>
           </a>

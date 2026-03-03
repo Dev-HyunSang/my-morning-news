@@ -78,6 +78,21 @@ export default defineConfig({
         target: 'https://moxie.foxnews.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/rss\/foxnews/, '/google-publisher/world.xml')
+      },
+      '/api/rss/yonhap': {
+        target: 'https://www.yna.co.kr',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/rss\/yonhap/, '/rss/news.xml')
+      },
+      '/api/rss/abc': {
+        target: 'https://abcnews.go.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/rss\/abc/, '/abcnews/topstories')
+      },
+      '/api/rss/abc-us': {
+        target: 'https://abcnews.go.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/rss\/abc-us/, '/abcnews/usheadlines')
       }
     }
   }
